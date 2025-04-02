@@ -21,13 +21,33 @@ def fetch_post_content(url):
         dict: 包含文字、图片和视频URL的字典
     """
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
         "Referer": "https://www.xiaohongshu.com/explore",
-        "Accept-Language": "zh-CN,zh;q=0.9"
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Cache-Control": "max-age=0",
+        "Sec-Ch-Ua": "\"Not_A Brand\";v=\"8\", \"Chromium\";v=\"120\", \"Microsoft Edge\";v=\"120\"",
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": "\"Windows\"",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
+        "Connection": "keep-alive"
     }
+    
     try:
+        # 主要抓取方法
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
+        
+        # 如果返回的是跳转页面或者需要登录的页面，尝试备用方法
+        if "请登录" in response.text or "跳转中" in response.text or len(response.text) < 1000:
+            print("检测到需要登录或跳转页面，尝试备用方法...")
+            return fetch_post_content_alternative(url)
+            
         soup = BeautifulSoup(response.text, 'html.parser')
         
         # 提取标题和文字内容（需根据实际HTML调整）
@@ -46,6 +66,11 @@ def fetch_post_content(url):
         if video_tag and 'src' in video_tag.attrs:
             video = video_tag['src']
         
+        # 如果无法提取到足够内容，尝试备用方法
+        if (not content_div or len(text) < 50) and "未找到" in text:
+            print("无法提取有效内容，尝试备用方法...")
+            return fetch_post_content_alternative(url)
+        
         return {
             "title": title_text,
             "text": text, 
@@ -54,8 +79,88 @@ def fetch_post_content(url):
         }
     except Exception as e:
         print(f"抓取失败: {str(e)}")
-        # 失败时提示用户手动输入
-        return manual_input()
+        # 尝试备用方法
+        try:
+            return fetch_post_content_alternative(url)
+        except Exception as e2:
+            print(f"备用方法也失败: {str(e2)}")
+            # 所有方法都失败时提示用户手动输入
+            return manual_input()
+
+def fetch_post_content_alternative(url):
+    """备用抓取方法，使用移动端模拟或不同的请求方式"""
+    # 模拟移动设备
+    mobile_headers = {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
+        "Referer": "https://www.xiaohongshu.com/explore",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br"
+    }
+    
+    response = requests.get(url, headers=mobile_headers, timeout=15)
+    response.raise_for_status()
+    soup = BeautifulSoup(response.text, 'html.parser')
+    
+    # 移动版网页解析逻辑（可能与桌面版不同）
+    title = soup.find('h1') or soup.find('title')
+    title_text = title.text.strip() if title else "未找到标题"
+    
+    # 尝试不同的内容选择器
+    content_selectors = [
+        'div.content', 'article', 'div.note-content',
+        'div.desc', 'div.note-desc', 'section.content'
+    ]
+    
+    text = ""
+    for selector in content_selectors:
+        content_div = soup.select_one(selector)
+        if content_div:
+            text = content_div.text.strip()
+            if len(text) > 50:  # 找到合理长度的内容就停止
+                break
+    
+    if not text or len(text) < 50:
+        text = "未找到文字内容"
+    
+    # 提取图片，尝试多种图片选择器
+    images = []
+    for img in soup.find_all('img'):
+        if 'src' in img.attrs and not img['src'].startswith('data:'):
+            if img['src'].startswith('http'):
+                images.append(img['src'])
+            elif img['src'].startswith('//'):
+                images.append('https:' + img['src'])
+    
+    # 尝试提取data-src属性的图片（延迟加载）
+    for img in soup.find_all('img', attrs={'data-src': True}):
+        src = img['data-src']
+        if src.startswith('http'):
+            images.append(src)
+        elif src.startswith('//'):
+            images.append('https:' + src)
+    
+    # 提取视频
+    video = None
+    video_tag = soup.find('video')
+    if video_tag:
+        if 'src' in video_tag.attrs:
+            video = video_tag['src']
+        elif 'data-src' in video_tag.attrs:
+            video = video_tag['data-src']
+    
+    # 尝试从资源标签中提取视频
+    if not video:
+        video_source = soup.find('source')
+        if video_source and 'src' in video_source.attrs:
+            video = video_source['src']
+    
+    return {
+        "title": title_text,
+        "text": text, 
+        "images": images, 
+        "video": video
+    }
 
 def manual_input():
     """用户手动输入内容"""
@@ -155,10 +260,21 @@ def fetch_top_posts(keyword, max_posts=10):
     search_url = f"https://www.xiaohongshu.com/search_result?keyword={encoded_keyword}&source=web"
     
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
         "Referer": "https://www.xiaohongshu.com/explore",
-        "Accept-Language": "zh-CN,zh;q=0.9",
-        "Cookie": "_xsrf=2|dd5357a0|b6b5e667c2e17cdd2fc60c0dca6dc4e8|1707307576; webId=92836529; xsecappid=xhs-pc-web; timestamp2=20240707a2183bbde7c72b6ca5ad6ce0; timestamp2.sig=Nq4eG4RfYuW00tNRm8cD-Qj8i4k0NPXavM0QbIVjN9Q"  # 这是示例Cookie，请替换或移除
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Cache-Control": "max-age=0",
+        "Sec-Ch-Ua": "\"Not_A Brand\";v=\"8\", \"Chromium\";v=\"120\", \"Microsoft Edge\";v=\"120\"",
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": "\"Windows\"",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
+        "Connection": "keep-alive"
     }
     
     try:
@@ -228,31 +344,47 @@ def fetch_top_posts_api(keyword, max_posts=10):
     
     print("使用API方式获取热门帖子...")
     
-    # 构建API请求参数
-    timestamp = int(time.time() * 1000)
-    sign = hashlib.md5(f"keyword={keyword}&source=web&t={timestamp}".encode()).hexdigest()
-    
-    api_url = "https://www.xiaohongshu.com/api/sns/web/v1/search/notes"
-    params = {
-        "keyword": keyword,
-        "source": "web",
-        "t": timestamp,
-        "sign": sign,
-        "page": 1,
-        "page_size": max_posts,
-        "sort": "general",  # general, popularity, time
-    }
-    
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-        "Referer": "https://www.xiaohongshu.com/search_result",
-        "Accept": "application/json",
-        "X-Requested-With": "XMLHttpRequest",
-        "Content-Type": "application/json;charset=UTF-8"
-    }
-    
     try:
+        # 尝试使用新版API端点
+        timestamp = int(time.time() * 1000)
+        sign = hashlib.md5(f"keyword={keyword}&source=web&t={timestamp}".encode()).hexdigest()
+        
+        api_url = "https://www.xiaohongshu.com/api/sns/web/v1/search/notes"
+        params = {
+            "keyword": keyword,
+            "source": "web",
+            "t": timestamp,
+            "sign": sign,
+            "page": 1,
+            "page_size": max_posts,
+            "sort": "general",  # general, popularity, time
+        }
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+            "Referer": "https://www.xiaohongshu.com/search_result",
+            "Accept": "application/json",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
+            "Accept-Encoding": "gzip, deflate, br",
+            "X-Requested-With": "XMLHttpRequest",
+            "Content-Type": "application/json;charset=UTF-8",
+            "Origin": "https://www.xiaohongshu.com",
+            "Sec-Ch-Ua": "\"Not_A Brand\";v=\"8\", \"Chromium\";v=\"120\", \"Microsoft Edge\";v=\"120\"",
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": "\"Windows\"",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+            "Connection": "keep-alive"
+        }
+        
         response = requests.get(api_url, params=params, headers=headers, timeout=15)
+        
+        # 检查状态码，如果是500等服务器错误，直接使用模拟数据
+        if response.status_code >= 400:
+            print(f"API请求失败，状态码: {response.status_code}，直接使用模拟数据")
+            return generate_mock_top_posts(keyword if isinstance(keyword, list) else [keyword])
+            
         response.raise_for_status()
         data = response.json()
         
@@ -283,6 +415,7 @@ def fetch_top_posts_api(keyword, max_posts=10):
             
     except Exception as e:
         print(f"API获取热门帖子失败: {str(e)}")
+        # 直接返回模拟数据而不抛出异常
         return generate_mock_top_posts(keyword if isinstance(keyword, list) else [keyword])
 
 def generate_mock_top_posts(keywords):
