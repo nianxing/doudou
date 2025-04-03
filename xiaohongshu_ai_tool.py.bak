@@ -295,7 +295,7 @@ def fetch_post_content_alternative(url):
                     
                     json_data = json.loads(json_str)
                     break
-                except Exception:
+                except:
                     continue
         
         if json_data and "note" in json_data:
@@ -1039,7 +1039,7 @@ def fetch_top_posts(keyword, max_posts=10):
                 posts_container = soup.select('div.search-container div.note-item') or soup.select('div.content div.note-item')
                 
                 if not posts_container:
-                    return fetch_top_posts_api(keyword, max_posts)
+                return fetch_top_posts_api(keyword, max_posts)
             else:
                 print("未找到帖子容器，尝试使用备选方式...")
                 # 尝试一次不同的UA和请求参数
@@ -1055,7 +1055,7 @@ def fetch_top_posts(keyword, max_posts=10):
                     posts_container = alternative_soup.select('div.note-list section') or alternative_soup.select('div.items-wrapper div.item')
                 
                 if not posts_container:
-                    return fetch_top_posts_api(keyword, max_posts)
+                return fetch_top_posts_api(keyword, max_posts)
         
         results = []
         for post in posts_container[:max_posts]:

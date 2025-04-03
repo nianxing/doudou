@@ -176,6 +176,30 @@
             0%, 100% { transform: scale(1); }
             50% { transform: scale(1.2); }
         }
+        .manual-input-form {
+            display: none;
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        .toggle-manual-btn {
+            margin-top: 10px;
+            background-color: #6c757d;
+            border-color: #6c757d;
+        }
+        .image-preview {
+            max-width: 150px;
+            max-height: 150px;
+            margin: 5px;
+            border-radius: 5px;
+        }
+        .image-preview-container {
+            display: flex;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
@@ -217,6 +241,7 @@
                     <input type="text" id="url-input" class="form-control url-input" placeholder="例如: https://www.xiaohongshu.com/discovery/item/123456...">
                     <button class="btn btn-primary btn-analyze" id="analyze-btn">分析</button>
                 </div>
+                <button type="button" id="toggle-manual-btn" class="btn btn-secondary toggle-manual-btn">手动输入内容</button>
             </div>
         </div>
         
@@ -357,266 +382,338 @@
         </div>
     </div>
     
+    <div class="manual-input-form" id="manual-input-form">
+        <h4>手动输入内容</h4>
+        <div class="mb-3">
+            <label for="manual-title" class="form-label">标题</label>
+            <input type="text" class="form-control" id="manual-title" placeholder="输入帖子标题">
+        </div>
+        <div class="mb-3">
+            <label for="manual-content" class="form-label">内容</label>
+            <textarea class="form-control" id="manual-content" rows="5" placeholder="输入帖子内容"></textarea>
+        </div>
+        <div class="mb-3">
+            <label for="manual-images" class="form-label">图片URL (每行一个)</label>
+            <textarea class="form-control" id="manual-images" rows="3" placeholder="输入图片URL，每行一个"></textarea>
+        </div>
+        <div class="image-preview-container" id="image-preview-container">
+            <!-- 图片预览将在这里显示 -->
+        </div>
+        <button type="button" id="submit-manual" class="btn btn-primary mt-3">提交手动输入</button>
+    </div>
+    
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        document.getElementById('analyze-btn').addEventListener('click', async function() {
-            const url = document.getElementById('url-input').value.trim();
-            
-            if (!url) {
-                showError('请输入小红书帖子URL');
+        document.addEventListener('DOMContentLoaded', function() {
+            // 修复选择器，使用按钮而不是表单
+            const urlInput = document.querySelector('#url-input');
+            const analyzeBtn = document.querySelector('#analyze-btn');
+            const resultSection = document.querySelector('#result-section');
+            const errorAlert = document.querySelector('#error-alert');
+            const loader = document.querySelector('#loader');
+            const toggleManualBtn = document.getElementById('toggle-manual-btn');
+            const manualInputForm = document.getElementById('manual-input-form');
+            const submitManualBtn = document.getElementById('submit-manual');
+            const manualImagesInput = document.getElementById('manual-images');
+            const imagePreviewContainer = document.getElementById('image-preview-container');
+
+            // 检查必要元素
+            if (!urlInput || !analyzeBtn) {
+                console.error('必要元素未找到');
                 return;
             }
+
+            // 切换手动输入表单
+            toggleManualBtn.addEventListener('click', function() {
+                if (manualInputForm.style.display === 'block') {
+                    manualInputForm.style.display = 'none';
+                    toggleManualBtn.textContent = '手动输入内容';
+                } else {
+                    manualInputForm.style.display = 'block';
+                    toggleManualBtn.textContent = '隐藏手动输入';
+                }
+            });
+
+            // 监听图片URL输入变化以预览图片
+            manualImagesInput.addEventListener('input', function() {
+                const urls = manualImagesInput.value.split('\n').filter(url => url.trim() !== '');
+                imagePreviewContainer.innerHTML = '';
+                
+                urls.forEach(url => {
+                    if (url.startsWith('http')) {
+                        const img = document.createElement('img');
+                        img.src = url;
+                        img.className = 'image-preview';
+                        img.alt = '图片预览';
+                        img.onerror = function() {
+                            this.src = 'https://via.placeholder.com/150?text=加载失败';
+                        };
+                        imagePreviewContainer.appendChild(img);
+                    }
+                });
+            });
+
+            // 提交手动输入内容
+            submitManualBtn.addEventListener('click', function() {
+                const url = urlInput.value;
+                const title = document.getElementById('manual-title').value;
+                const content = document.getElementById('manual-content').value;
+                const imagesText = document.getElementById('manual-images').value;
+                
+                if (!url) {
+                    showError('请先输入小红书帖子URL');
+                    return;
+                }
+                
+                if (!title && !content) {
+                    showError('请至少输入标题或内容');
+                    return;
+                }
+                
+                // 处理图片URL
+                const images = imagesText.split('\n')
+                    .map(u => u.trim())
+                    .filter(u => u !== '' && u.startsWith('http'));
+                
+                submitManualData(url, title, content, images);
+            });
+
+            // 提交手动输入的数据
+            function submitManualData(url, title, content, images) {
+                showLoading();
+                hideError();
+                
+                fetch('/manual_input', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        url: url,
+                        title: title,
+                        text: content,
+                        images: images
+                    })
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('手动输入处理失败');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    hideLoading();
+                    displayResults(data);
+                })
+                .catch(err => {
+                    hideLoading();
+                    showError(err.message);
+                });
+            }
+
+            // 分析按钮点击事件
+            analyzeBtn.addEventListener('click', function() {
+                const url = urlInput.value.trim();
+                if (!url) {
+                    showError('请输入小红书链接');
+                    return;
+                }
+                
+                analyzeUrl(url);
+            });
             
-            // 显示加载动画，隐藏结果和错误信息
-            document.getElementById('loader').style.display = 'block';
-            document.getElementById('result-section').style.display = 'none';
-            document.getElementById('error-alert').style.display = 'none';
-            
-            try {
-                const response = await fetch('/analyze', {
+            // 分析URL函数
+            function analyzeUrl(url) {
+                showLoading();
+                hideError();
+                
+                fetch('/analyze', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ url: url }),
+                    body: JSON.stringify({ url: url })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    hideLoading();
+                    
+                    if (data.error) {
+                        showError(data.error);
+                        return;
+                    }
+                    
+                    displayResults(data);
+                })
+                .catch(error => {
+                    hideLoading();
+                    showError('分析失败，请稍后再试: ' + error.message);
                 });
+            }
+            
+            // 显示加载状态
+            function showLoading() {
+                if (loader) loader.style.display = 'block';
+                if (resultSection) resultSection.style.display = 'none';
+            }
+            
+            // 隐藏加载状态
+            function hideLoading() {
+                if (loader) loader.style.display = 'none';
+            }
+            
+            // 显示错误信息
+            function showError(message) {
+                if (errorAlert) {
+                    errorAlert.textContent = message;
+                    errorAlert.style.display = 'block';
+                } else {
+                    alert(message); // 备用方案
+                }
+            }
+            
+            // 隐藏错误信息
+            function hideError() {
+                if (errorAlert) errorAlert.style.display = 'none';
+            }
+            
+            // 显示结果
+            function displayResults(data) {
+                if (!resultSection) return;
                 
-                const data = await response.json();
+                // 将原始内容显示在页面上
+                document.getElementById('original-title').textContent = data.original.title || '无标题';
                 
-                // 隐藏加载动画
-                document.getElementById('loader').style.display = 'none';
+                const originalContent = document.getElementById('original-content');
+                originalContent.textContent = '';
                 
-                if (data.error) {
-                    showError(data.error);
-                    return;
+                if (data.original.text) {
+                    originalContent.textContent = data.original.text;
+                } else {
+                    originalContent.textContent = '无内容';
                 }
                 
-                // 显示结果
-                displayResults(data);
+                document.getElementById('original-image-count').textContent = 
+                    data.original.images ? data.original.images.length + ' 张' : '无图片';
                 
-                // 添加成功分析的庆祝效果
-                showCelebration();
-            } catch (error) {
-                document.getElementById('loader').style.display = 'none';
-                showError('请求失败: ' + error.message);
-            }
-        });
-        
-        function showError(message) {
-            const errorAlert = document.getElementById('error-alert');
-            errorAlert.textContent = message;
-            errorAlert.style.display = 'block';
-        }
-        
-        function displayResults(data) {
-            // 显示结果区域
-            document.getElementById('result-section').style.display = 'block';
-            
-            // 显示关键词
-            const keywordsContainer = document.getElementById('keywords-container');
-            keywordsContainer.innerHTML = '';
-            data.analysis.keywords.forEach(keyword => {
-                const badge = document.createElement('span');
-                badge.className = 'badge keyword-badge';
-                badge.textContent = keyword;
-                keywordsContainer.appendChild(badge);
-            });
-            
-            // 如果有AI分析结果，显示AI分析卡片
-            if (data.analysis.ai_analysis) {
-                const aiCard = document.getElementById('ai-analysis-card');
-                aiCard.style.display = 'block';
+                document.getElementById('original-video').textContent = 
+                    data.original.video ? '有视频' : '无视频';
                 
-                // 填充分析数据
-                document.getElementById('ai-topic').textContent = data.analysis.ai_analysis.topic || '未提供';
-                document.getElementById('ai-category').textContent = data.analysis.ai_analysis.category || '未提供';
-                document.getElementById('ai-style').textContent = data.analysis.ai_analysis.style || '未提供';
-                document.getElementById('ai-audience').textContent = data.analysis.ai_analysis.audience || '未提供';
-                document.getElementById('ai-tone').textContent = data.analysis.ai_analysis.tone || '未提供';
-            } else {
-                document.getElementById('ai-analysis-card').style.display = 'none';
-            }
-            
-            // 如果有媒体分析结果，显示媒体分析卡片
-            if (data.analysis.media_analysis) {
-                const mediaCard = document.getElementById('media-analysis-card');
-                mediaCard.style.display = 'block';
+                // 关键词显示
+                const keywordsContainer = document.getElementById('keywords-container');
+                keywordsContainer.innerHTML = '';
                 
-                // 处理图片分析结果
-                if (data.analysis.media_analysis.image_analyses && data.analysis.media_analysis.image_analyses.length > 0) {
-                    const imageContainer = document.getElementById('image-analysis-container');
-                    imageContainer.style.display = 'block';
-                    
-                    const imageList = document.getElementById('image-analysis-list');
-                    imageList.innerHTML = '';
-                    
-                    data.analysis.media_analysis.image_analyses.forEach((img, index) => {
-                        if (!img.error) {
-                            const col = document.createElement('div');
-                            col.className = 'col-md-4 mb-3';
-                            
-                            const card = document.createElement('div');
-                            card.className = 'card h-100';
-                            
-                            const cardBody = document.createElement('div');
-                            cardBody.className = 'card-body';
-                            
-                            // 添加图片编号
-                            const imgHeader = document.createElement('h6');
-                            imgHeader.className = 'card-title border-bottom pb-2 mb-3';
-                            imgHeader.textContent = '图片 #' + (index + 1);
-                            
-                            // 内容描述
-                            const content = document.createElement('p');
-                            content.className = 'card-text small';
-                            content.innerHTML = '<strong>描述:</strong> ' + (img.content || '未提供');
-                            
-                            // 物品识别
-                            const objects = document.createElement('p');
-                            objects.className = 'card-text small';
-                            objects.innerHTML = '<strong>识别对象:</strong> ' + (img.objects && img.objects.length > 0 ? img.objects.join(', ') : '无');
-                            
-                            // 风格
-                            const style = document.createElement('p');
-                            style.className = 'card-text small';
-                            style.innerHTML = '<strong>风格:</strong> ' + (img.style || '未识别');
-                            
-                            // 评分
-                            const scores = document.createElement('p');
-                            scores.className = 'card-text small';
-                            scores.innerHTML = '<strong>质量评分:</strong> ' + img.quality + '/10 &nbsp; <strong>吸引力:</strong> ' + img.appeal + '/10';
-                            
-                            // 关键词
-                            const keywords = document.createElement('p');
-                            keywords.className = 'card-text small';
-                            keywords.innerHTML = '<strong>关键词:</strong> ' + (img.keywords && img.keywords.length > 0 ? img.keywords.join(', ') : '无');
-                            
-                            // 组合卡片内容
-                            cardBody.appendChild(imgHeader);
-                            cardBody.appendChild(content);
-                            cardBody.appendChild(objects);
-                            cardBody.appendChild(style);
-                            cardBody.appendChild(scores);
-                            cardBody.appendChild(keywords);
-                            
-                            card.appendChild(cardBody);
-                            col.appendChild(card);
-                            imageList.appendChild(col);
-                        }
+                if (data.analysis && data.analysis.keywords && data.analysis.keywords.length > 0) {
+                    data.analysis.keywords.forEach(keyword => {
+                        const badge = document.createElement('span');
+                        badge.className = 'badge keyword-badge me-2 mb-2';
+                        badge.textContent = keyword;
+                        keywordsContainer.appendChild(badge);
                     });
                 } else {
-                    document.getElementById('image-analysis-container').style.display = 'none';
+                    keywordsContainer.textContent = '无关键词';
                 }
                 
-                // 处理视频分析结果
-                if (data.analysis.media_analysis.video_analysis && !data.analysis.media_analysis.video_analysis.error) {
-                    const videoContainer = document.getElementById('video-analysis-container');
-                    videoContainer.style.display = 'block';
+                // 添加优化标题 - 使用关键词创建优化标题
+                const optimizedTitle = document.getElementById('optimized-title');
+                if (data.analysis && data.analysis.keywords && data.analysis.keywords.length > 0) {
+                    const keywords = data.analysis.keywords.slice(0, 3);
+                    let title = data.original.title;
                     
-                    const video = data.analysis.media_analysis.video_analysis;
+                    // 如果是未找到标题或模拟数据，使用关键词生成标题
+                    if (title === '未找到标题' || title === '小红书内容 (模拟数据)') {
+                        title = `${keywords.join('｜')} 分享`;
+                    }
                     
-                    // 填充视频分析数据
-                    document.getElementById('video-content').textContent = video.content || '未提供';
-                    document.getElementById('video-objects').textContent = video.objects && video.objects.length > 0 ? video.objects.join(', ') : '无';
-                    document.getElementById('video-keywords').textContent = video.keywords && video.keywords.length > 0 ? video.keywords.join(', ') : '无';
-                    document.getElementById('video-quality').textContent = video.quality + '/10';
-                    document.getElementById('video-appeal').textContent = video.appeal + '/10';
+                    optimizedTitle.textContent = title;
                 } else {
-                    document.getElementById('video-analysis-container').style.display = 'none';
+                    optimizedTitle.textContent = data.original.title || '无法生成优化标题';
                 }
-            } else {
-                document.getElementById('media-analysis-card').style.display = 'none';
+                
+                // 添加优化内容 - 基于原始内容或提供示例
+                const optimizedBody = document.getElementById('optimized-body');
+                if (data.original.text && data.original.text !== '未找到内容' && 
+                    data.original.text !== '这是一个模拟的小红书内容，因为无法从原始URL获取数据。这可能是由于反爬虫措施或者网络问题导致的。请稍后再试或者手动输入内容。') {
+                    // 使用原始内容
+                    optimizedBody.textContent = data.original.text;
+                } else if (data.analysis && data.analysis.keywords && data.analysis.keywords.length > 0) {
+                    // 生成示例内容
+                    const keywords = data.analysis.keywords.slice(0, 5);
+                    optimizedBody.textContent = `今天想和大家分享关于「${keywords[0]}」的心得～\n\n作为${keywords[1]}的爱好者，我一直在寻找好的${keywords[2] || '内容'}。\n\n💫 推荐理由：\n- 质量好\n- 性价比高\n- 很实用\n\n🌟 使用体验：\n这个${keywords[0]}真的很赞，${keywords[3] || '效果'}出乎意料的好！\n\n✨ 小贴士：\n${keywords[4] || '喜欢'}的朋友可以试试看，绝对不会后悔！\n\n#${keywords[0]} #${keywords[1]} #推荐 #分享`;
+                } else {
+                    optimizedBody.textContent = '无法生成优化内容，请提供更多信息。';
+                }
+                
+                // 添加改进建议
+                const suggestionsContainer = document.getElementById('suggestions-container');
+                suggestionsContainer.innerHTML = '';
+                
+                const suggestions = [
+                    `建议在标题中使用数字，如"${data.analysis?.keywords?.[0] || '内容'}必看的5个理由"`,
+                    '增加更多高质量图片，提高内容吸引力',
+                    '在正文中使用更多表情符号，增加亲和力',
+                    '添加"#话题标签"提高曝光率',
+                    '结尾增加互动引导，鼓励点赞和评论'
+                ];
+                
+                suggestions.forEach(suggestion => {
+                    const suggestionItem = document.createElement('div');
+                    suggestionItem.className = 'suggestion-item';
+                    suggestionItem.textContent = suggestion;
+                    suggestionsContainer.appendChild(suggestionItem);
+                });
+                
+                // 相关热门帖子显示
+                const topPostsContainer = document.getElementById('top-posts-container');
+                topPostsContainer.innerHTML = '';
+                
+                if (data.analysis && data.analysis.top_posts && data.analysis.top_posts.length > 0) {
+                    data.analysis.top_posts.forEach(post => {
+                        const postItem = document.createElement('div');
+                        postItem.className = 'suggestion-item mb-2';
+                        
+                        const title = document.createElement('div');
+                        title.className = 'fw-bold';
+                        title.textContent = post.title;
+                        
+                        const likesText = document.createElement('div');
+                        likesText.innerHTML = `<i class="fas fa-heart text-danger"></i> ${post.likes}`;
+                        
+                        const link = document.createElement('a');
+                        link.href = post.url;
+                        link.target = '_blank';
+                        link.className = 'btn btn-sm btn-primary mt-1';
+                        link.textContent = '查看详情';
+                        
+                        postItem.appendChild(title);
+                        postItem.appendChild(likesText);
+                        postItem.appendChild(link);
+                        
+                        topPostsContainer.appendChild(postItem);
+                    });
+                } else {
+                    topPostsContainer.textContent = '无相关帖子';
+                }
+                
+                // 显示结果区域
+                resultSection.style.display = 'block';
+                resultSection.scrollIntoView({ behavior: 'smooth' });
             }
             
-            // 显示优化标题
-            document.getElementById('optimized-title').textContent = data.optimized.title;
-            
-            // 显示优化内容
-            document.getElementById('optimized-body').textContent = data.optimized.body;
-            
-            // 显示建议
-            const suggestionsContainer = document.getElementById('suggestions-container');
-            suggestionsContainer.innerHTML = '';
-            data.optimized.suggestions.forEach(suggestion => {
-                const div = document.createElement('div');
-                div.className = 'suggestion-item';
-                div.textContent = suggestion;
-                suggestionsContainer.appendChild(div);
-            });
-            
-            // 显示相关热门帖子
-            const topPostsContainer = document.getElementById('top-posts-container');
-            topPostsContainer.innerHTML = '';
-            const topPostsList = document.createElement('ol');
-            topPostsList.className = 'list-group list-group-numbered';
-            data.analysis.top_posts.forEach(post => {
-                const li = document.createElement('li');
-                li.className = 'list-group-item d-flex justify-content-between align-items-start';
-                
-                const div = document.createElement('div');
-                div.className = 'ms-2 me-auto';
-                div.textContent = post.title;
-                
-                const badge = document.createElement('span');
-                badge.className = 'badge bg-primary rounded-pill';
-                badge.textContent = post.likes + ' 赞';
-                
-                li.appendChild(div);
-                li.appendChild(badge);
-                topPostsList.appendChild(li);
-            });
-            topPostsContainer.appendChild(topPostsList);
-            
-            // 显示原始内容
-            document.getElementById('original-title').textContent = data.original.title;
-            document.getElementById('original-content').textContent = data.original.text;
-            document.getElementById('original-image-count').textContent = 
-                data.original.images ? data.original.images.length + ' 张' : '0 张';
-            document.getElementById('original-video').textContent = 
-                data.original.video ? '有' : '无';
-        }
-        
-        // 添加分析成功的庆祝效果
-        function showCelebration() {
-            // 播放礼花效果
-            for (let i = 0; i < 50; i++) {
-                createConfetti();
-            }
-        }
-        
-        function createConfetti() {
-            const confetti = document.createElement('div');
-            confetti.className = 'confetti';
-            confetti.style.left = Math.random() * 100 + '%';
-            confetti.style.width = (Math.random() * 8 + 5) + 'px';
-            confetti.style.height = (Math.random() * 8 + 5) + 'px';
-            confetti.style.backgroundColor = getRandomColor();
-            confetti.style.animationDelay = Math.random() * 5 + 's';
-            document.body.appendChild(confetti);
-            
-            // 3秒后移除
-            setTimeout(() => {
-                confetti.remove();
-            }, 5000);
-        }
-        
-        function getRandomColor() {
-            const colors = ['#1e90ff', '#87CEFA', '#00BFFF', '#4169E1', '#0000CD', '#6495ED', '#4682B4'];
-            return colors[Math.floor(Math.random() * colors.length)];
-        }
-        
-        // 复制功能
-        document.querySelectorAll('.copy-btn').forEach(button => {
-            button.addEventListener('click', function() {
-                const targetId = this.getAttribute('data-target');
-                const text = document.getElementById(targetId).textContent;
-                
-                navigator.clipboard.writeText(text).then(() => {
-                    const originalText = this.textContent;
-                    this.textContent = '已复制!';
-                    setTimeout(() => {
-                        this.textContent = originalText;
-                    }, 2000);
+            // 复制按钮功能
+            document.querySelectorAll('.copy-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const targetId = this.dataset.target;
+                    const targetElem = document.getElementById(targetId);
+                    if (targetElem) {
+                        const textToCopy = targetElem.textContent;
+                        navigator.clipboard.writeText(textToCopy).then(() => {
+                            this.textContent = '已复制!';
+                            setTimeout(() => {
+                                this.textContent = '复制';
+                            }, 2000);
+                        });
+                    }
                 });
             });
         });

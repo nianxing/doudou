@@ -277,10 +277,10 @@ def fetch_post_content_alternative(url):
     
     try:
         response = requests.get(url, headers=mobile_headers, cookies=cookies, timeout=15)
-        response.raise_for_status()
+    response.raise_for_status()
         
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
+    soup = BeautifulSoup(response.text, 'html.parser')
+    
         # 尝试提取JSON数据
         json_data = None
         scripts = soup.select('script')
@@ -294,8 +294,8 @@ def fetch_post_content_alternative(url):
                         json_str = script.string.split("window.__INITIAL_SSR_STATE__=")[1].split(";")[0]
                     
                     json_data = json.loads(json_str)
-                    break
-                except Exception:
+                break
+                except:
                     continue
         
         if json_data and "note" in json_data:
@@ -316,8 +316,8 @@ def fetch_post_content_alternative(url):
                 for img in note_data["imageList"]:
                     if "url" in img:
                         image_urls.append(img["url"])
-            
-            # 提取视频
+    
+    # 提取视频
             video_url = None
             if "video" in note_data and "url" in note_data["video"]:
                 video_url = note_data["video"]["url"]
@@ -348,8 +348,8 @@ def fetch_post_content_alternative(url):
         video_elem = soup.select_one('video')
         if video_elem and video_elem.get('src'):
             video_url = video_elem['src']
-        
-        return {
+    
+    return {
             "title": title,
             "text": content,
             "images": image_urls,
@@ -365,7 +365,7 @@ def fetch_post_content_alternative(url):
             "text": "未找到内容，请手动输入",
             "images": [],
             "video": None
-        }
+    }
 
 def manual_input():
     """用户手动输入内容"""
@@ -1039,7 +1039,7 @@ def fetch_top_posts(keyword, max_posts=10):
                 posts_container = soup.select('div.search-container div.note-item') or soup.select('div.content div.note-item')
                 
                 if not posts_container:
-                    return fetch_top_posts_api(keyword, max_posts)
+                return fetch_top_posts_api(keyword, max_posts)
             else:
                 print("未找到帖子容器，尝试使用备选方式...")
                 # 尝试一次不同的UA和请求参数
@@ -1055,7 +1055,7 @@ def fetch_top_posts(keyword, max_posts=10):
                     posts_container = alternative_soup.select('div.note-list section') or alternative_soup.select('div.items-wrapper div.item')
                 
                 if not posts_container:
-                    return fetch_top_posts_api(keyword, max_posts)
+                return fetch_top_posts_api(keyword, max_posts)
         
         results = []
         for post in posts_container[:max_posts]:
